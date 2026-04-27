@@ -118,43 +118,64 @@ async function handleChat(request, env) {
     // Try to parse contact info from message
     const { name, email, phone } = parseContactInfo(message);
     
-    if (email || phone) {
-      // We have enough to create a lead
-      const leadPayload = {
-        ...leadData,
-        ...body.collected,
-        firstName: name?.split(' ')[0] || '',
-        lastName: name?.split(' ').slice(1).join(' ') || '',
-        email: email || '',
-        phone: phone || '',
-        leadStatus: 'New',
-        sourceType: 'SierraApi',
-        note: `Captured via Jane chatbot. Flow: ${flow}. Message: ${message?.substring(0, 100)}`
-      };
-
-      // Create lead in Sierra
-      const result = await createSierraLead(leadPayload);
-      
-      // Notify Jim
-      await notifyTelegram(leadPayload, result);
-
+    // Merge with any previously collected data
+    const collected = {
+      ...leadData,
+      name: name || leadData?.name || null,
+      email: email || leadData?.email || null,
+      phone: phone || leadData?.phone || null
+    };
+    
+    // Check if we have ALL required fields: first name, last name, email, phone
+    const hasFirstName = collected.name?.split(' ')[0];
+    const hasLastName = collected.name?.split(' ').length > 1;
+    const hasEmail = collected.email;
+    const hasPhone = collected.phone;
+    
+    const missingFields = [];
+    if (!hasFirstName) missingFields.push("first name");
+    if (!hasLastName) missingFields.push("last name");
+    if (!hasEmail) missingFields.push("email");
+    if (!hasPhone) missingFields.push("phone number");
+    
+    if (missingFields.length > 0) {
+      // Need more info - tell them what's missing
       return jsonResponse({
-        message: `Thanks ${name?.split(' ')[0] || ''}! Jim or a team member will reach out to you within 24 hours. Is there anything specific I can pass along about what you're looking for?`,
-        flow: 'complete',
-        leadCreated: result.success,
-        buttons: [
-          { label: "No, I'm all set", value: "done", icon: "✅" },
-          { label: "Add more details", value: "more", icon: "📝" }
-        ]
-      });
-    } else {
-      // Need more info
-      return jsonResponse({
-        message: "I need a bit more info to connect you. Could you provide your email address or phone number?",
+        message: `To connect you with our team, I'll need your ${missingFields.join(", ")}. Could you provide ${missingFields.length > 1 ? 'those' : 'that'}?`,
         flow: flow,
-        collected: leadData
+        collected: collected
       });
     }
+    
+    // We have all required fields - create lead payload
+    const leadPayload = {
+      ...body.collected,
+      firstName: collected.name.split(' ')[0],
+      lastName: collected.name.split(' ').slice(1).join(' '),
+      email: collected.email,
+      phone: collected.phone,
+      leadStatus: 'New',
+      sourceType: 'SierraApi',
+      note: `Captured via Jane chatbot (TEST MODE - NOT SAVED TO SIERRA). Flow: ${flow}. Message: ${message?.substring(0, 100)}`
+    };
+
+    // TEMPORARILY DISABLED: Create lead in Sierra
+    // const result = await createSierraLead(leadPayload);
+    const result = { success: true, leadId: 'TEST-NOT-SAVED', testMode: true };
+    
+    // Notify Jim (TEST MODE)
+    await notifyTelegram(leadPayload, result);
+
+    return jsonResponse({
+      message: `Thanks ${leadPayload.firstName}! I've passed your information along. Jim or a team member will reach out to you within 24 hours at ${leadPayload.phone || leadPayload.email}. Is there anything specific I can pass along about what you're looking for?`,
+      flow: 'complete',
+      leadCreated: false, // Not actually saved yet
+      testMode: true,
+      buttons: [
+        { label: "No, I'm all set", value: "done", icon: "✅" },
+        { label: "Add more details", value: "more", icon: "📝" }
+      ]
+    });
   }
 
   // Flow: More details after lead creation
@@ -249,7 +270,10 @@ async function notifyTelegram(lead, result) {
     // Only notify on success
     if (!result.success) return;
 
-    const message = `🏠 New Lead via Jane Chatbot
+    const isTestMode = result.testMode || result.leadId === 'TEST-NOT-SAVED';
+    const testBanner = isTestMode ? '⚠️ TEST MODE - NOT SAVED TO SIERRA\n\n' : '';
+
+    const message = `${testBanner}🏠 New Lead via Jane Chatbot
 
 Name: ${lead.firstName} ${lead.lastName}
 Email: ${lead.email || 'N/A'}
@@ -258,7 +282,7 @@ Type: ${lead.leadType || 'Unknown'}
 Source: ${lead.source || 'Website Chat'}
 
 Sierra ID: ${result.leadId || 'N/A'}
-`;
+${isTestMode ? '\n⚠️ To enable Sierra saving, remove test mode from worker.js' : ''}`;
 
     // Fire-and-forget notification
     fetch(JIM_TELEGRAM_BOT, {
