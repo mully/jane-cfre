@@ -1,13 +1,16 @@
 /**
  * Jane - CFRE Website Chatbot Worker
  * Cloudflare Worker for handling chat leads and Q&A
+ * 
+ * Required Environment Variables:
+ * - SIERRA_API_KEY
+ * - TELEGRAM_BOT_TOKEN
+ * - TELEGRAM_CHAT_ID
+ * - ASSISTANT_NAME (optional, defaults to Jane)
+ * - BRAND_NAME (optional, defaults to CY-FAIR Real Estate)
  */
 
-// Configuration
-const SIERRA_API_KEY = 'b9600377-1eb4-4a57-9e3c-29c8c3122a96';
 const SIERRA_BASE_URL = 'https://api.sierrainteractivedev.com';
-const JIM_TELEGRAM_BOT = 'https://api.telegram.org/bot<TOKEN>/sendMessage';
-const JIM_CHAT_ID = '7760802474';
 
 // CORS headers for browser requests
 const corsHeaders = {
@@ -169,7 +172,7 @@ async function handleChat(request, env) {
     const result = { success: true, leadId: 'TEST-NOT-SAVED', testMode: true };
     
     // Notify Jim (TEST MODE)
-    await notifyTelegram(leadPayload, result);
+    await notifyTelegram(leadPayload, result, env);
 
     return jsonResponse({
       message: `Thanks ${leadPayload.firstName}! I've passed your information along. Jim or a team member will reach out to you within 24 hours at ${leadPayload.phone || leadPayload.email}. Is there anything specific I can pass along about what you're looking for?`,
@@ -212,10 +215,10 @@ async function handleChat(request, env) {
  */
 async function handleLeadCreate(request, env) {
   const leadData = await request.json();
-  const result = await createSierraLead(leadData);
+  const result = await createSierraLead(leadData, env);
   
   if (result.success) {
-    await notifyTelegram(leadData, result);
+    await notifyTelegram(leadData, result, env);
   }
   
   return jsonResponse(result, result.success ? 201 : 400);
@@ -224,12 +227,12 @@ async function handleLeadCreate(request, env) {
 /**
  * Create lead in Sierra Interactive
  */
-async function createSierraLead(leadData) {
+async function createSierraLead(leadData, env) {
   try {
     const response = await fetch(`${SIERRA_BASE_URL}/leads`, {
       method: 'POST',
       headers: {
-        'Sierra-ApiKey': SIERRA_API_KEY,
+        'Sierra-ApiKey': env.SIERRA_API_KEY,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(leadData)
@@ -270,7 +273,7 @@ async function createSierraLead(leadData) {
 /**
  * Send notification to Telegram (Jim)
  */
-async function notifyTelegram(lead, result) {
+async function notifyTelegram(lead, result, env) {
   try {
     // Only notify on success
     if (!result.success) return;
@@ -289,12 +292,14 @@ Source: ${lead.source || 'Website Chat'}
 Sierra ID: ${result.leadId || 'N/A'}
 ${isTestMode ? '\n⚠️ To enable Sierra saving, remove test mode from worker.js' : ''}`;
 
+    const botUrl = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+
     // Fire-and-forget notification
-    fetch(JIM_TELEGRAM_BOT, {
+    fetch(botUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        chat_id: JIM_CHAT_ID,
+        chat_id: env.TELEGRAM_CHAT_ID,
         text: message,
         parse_mode: 'HTML'
       })
