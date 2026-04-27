@@ -184,6 +184,8 @@ GUIDELINES:
 
   try {
     // Try Kimi API first
+    console.log('Calling Kimi API with key prefix:', KIMI_API_KEY.substring(0, 15) + '...');
+    
     const response = await fetch('https://api.moonshot.cn/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -201,17 +203,20 @@ GUIDELINES:
       })
     });
 
+    console.log('Kimi API response status:', response.status);
+    
     if (!response.ok) {
-      const error = await response.json();
-      console.error('Kimi API error:', error);
-      throw new Error('Kimi API error');
+      const errorData = await response.text();
+      console.error('Kimi API error:', response.status, errorData);
+      throw new Error(`Kimi API error: ${response.status}`);
     }
 
     const data = await response.json();
+    console.log('Kimi API success, response length:', data.choices[0].message.content.length);
     return data.choices[0].message.content;
     
   } catch (error) {
-    console.error('AI error:', error);
+    console.error('AI error:', error.message);
     // Fallback to knowledge base
     return `Based on what I know about Cy-Fair real estate:\n\n${knowledge.substring(0, 600)}...\n\nFor personalized help, I can connect you with Jim or one of our agents. Just share your name and contact info!`;
   }
