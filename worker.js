@@ -3,7 +3,7 @@
  * Cloudflare Worker for handling chat leads and Q&A
  * 
  * Required Environment Variables:
- * - OPENAI_API_KEY (for AI responses)
+ * - KIMI_API_KEY (for AI responses via Kimi K2.5)
  * - TELEGRAM_BOT_TOKEN (for notifications)
  * - TELEGRAM_CHAT_ID (your Telegram ID)
  * - SIERRA_API_KEY (optional, for lead creation)
@@ -138,10 +138,12 @@ async function handleChat(request, env) {
 }
 
 /**
- * Get AI response from OpenAI with knowledge context
+ * Get AI response from Kimi K2.5 with knowledge context
  */
 async function getAIResponse(userMessage, knowledge, env) {
-  if (!env.OPENAI_API_KEY) {
+  const KIMI_API_KEY = env.KIMI_API_KEY || env.OPENAI_API_KEY;
+  
+  if (!KIMI_API_KEY) {
     // No AI key, return knowledge-based response
     return `Based on our local expertise: ${knowledge.substring(0, 800)}. Would you like to connect with Jim or one of our agents for personalized assistance?`;
   }
@@ -150,7 +152,7 @@ async function getAIResponse(userMessage, knowledge, env) {
 
 YOUR ROLE:
 - Answer questions about Cy-Fair real estate, neighborhoods, schools, and market conditions
-- Be conversational, helpful, and professional
+- Be conversational, helpful, and professional  
 - Use the provided KNOWLEDGE BASE to answer accurately
 - If you don't know something specific, be honest and offer to connect them with an agent
 - Always mention you're an AI assistant and offer human help when appropriate
@@ -165,31 +167,39 @@ GUIDELINES:
 - Phone: 713-446-1018, Website: CyFairRealEstate.com
 - Be warm and approachable - use "we" and "our team"`;
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${env.OPENAI_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',  // Cheap but capable
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage }
-      ],
-      temperature: 0.7,
-      max_tokens: 250
-    })
-  });
+  try {
+    // Try Kimi API first
+    const response = await fetch('https://api.moonshot.cn/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${KIMI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'kimi-k2-5',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage }
+        ],
+        temperature: 0.7,
+        max_tokens: 250
+      })
+    });
 
-  if (!response.ok) {
-    const error = await response.json();
-    console.error('OpenAI error:', error);
-    throw new Error('AI service error');
+    if (!response.ok) {
+      const error = await response.json();
+      console.error('Kimi API error:', error);
+      throw new Error('Kimi API error');
+    }
+
+    const data = await response.json();
+    return data.choices[0].message.content;
+    
+  } catch (error) {
+    console.error('AI error:', error);
+    // Fallback to knowledge base
+    return `Based on what I know about Cy-Fair real estate:\n\n${knowledge.substring(0, 600)}...\n\nFor personalized help, I can connect you with Jim or one of our agents. Just share your name and contact info!`;
   }
-
-  const data = await response.json();
-  return data.choices[0].message.content;
 }
 
 /**
