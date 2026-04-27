@@ -193,7 +193,7 @@ GUIDELINES:
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'kimi-k2-5',
+        model: 'kimi-latest',  // Use latest stable model
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage }
