@@ -41,7 +41,16 @@ export default {
 
       // Route: /health - Health check
       if (path === '/health') {
-        return jsonResponse({ status: 'ok', service: 'jane-cfre' });
+        return jsonResponse({ 
+          status: 'ok', 
+          service: 'jane-cfre',
+          env_check: {
+            has_kimi_key: !!env.KIMI_API_KEY,
+            kimi_key_prefix: env.KIMI_API_KEY ? env.KIMI_API_KEY.substring(0, 10) + '...' : 'NOT SET',
+            has_telegram_token: !!env.TELEGRAM_BOT_TOKEN,
+            has_chat_id: !!env.TELEGRAM_CHAT_ID
+          }
+        });
       }
 
       // Route: /widget.js - Serve the chat widget
@@ -143,8 +152,14 @@ async function handleChat(request, env) {
 async function getAIResponse(userMessage, knowledge, env) {
   const KIMI_API_KEY = env.KIMI_API_KEY || env.OPENAI_API_KEY;
   
+  console.log('getAIResponse called:', {
+    has_kimi_key: !!env.KIMI_API_KEY,
+    has_openai_key: !!env.OPENAI_API_KEY,
+    using_key: KIMI_API_KEY ? 'YES' : 'NO'
+  });
+  
   if (!KIMI_API_KEY) {
-    // No AI key, return knowledge-based response
+    console.log('No API key found, using knowledge fallback');
     return `Based on our local expertise: ${knowledge.substring(0, 800)}. Would you like to connect with Jim or one of our agents for personalized assistance?`;
   }
 
