@@ -121,6 +121,34 @@ async function handleChat(request, env) {
     });
   }
 
+  // Flow: After getting address/area info, move to contact collection
+  if (flow === 'value-address' || flow === 'sell-address') {
+    // User provided address, now ask for contact info
+    const addressInfo = message || 'Address provided';
+    return jsonResponse({
+      message: `Got it! I'll look up information on that property. To send you the home value report, I'll need your name, email, and phone number.`,
+      flow: 'contact-info',
+      collected: { 
+        ...leadData, 
+        address: addressInfo,
+        note: `Property address: ${addressInfo}`
+      }
+    });
+  }
+
+  if (flow === 'buy-area') {
+    const areaInfo = message || 'Area provided';
+    return jsonResponse({
+      message: `${areaInfo} is a great area! To send you available listings and schedule showings, I'll need your name, email, and phone number.`,
+      flow: 'contact-info',
+      collected: { 
+        ...leadData, 
+        area: areaInfo,
+        note: `Interested area: ${areaInfo}`
+      }
+    });
+  }
+
   // Flow: Collecting contact info (common across flows)
   if (flow?.endsWith('-contact') || flow?.endsWith('-info')) {
     // Try to parse contact info from message
@@ -278,6 +306,12 @@ async function notifyTelegram(lead, result, env) {
     // Only notify on success
     if (!result.success) return;
 
+    console.log('Telegram notify called with env:', {
+      hasToken: !!env.TELEGRAM_BOT_TOKEN,
+      hasChatId: !!env.TELEGRAM_CHAT_ID,
+      tokenPrefix: env.TELEGRAM_BOT_TOKEN?.substring(0, 20)
+    });
+
     const isTestMode = result.testMode || result.leadId === 'TEST-NOT-SAVED';
     const testBanner = isTestMode ? '⚠️ TEST MODE - NOT SAVED TO SIERRA\n\n' : '';
 
@@ -292,10 +326,19 @@ Source: ${lead.source || 'Website Chat'}
 Sierra ID: ${result.leadId || 'N/A'}
 ${isTestMode ? '\n⚠️ To enable Sierra saving, remove test mode from worker.js' : ''}`;
 
+    if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
+      console.error('Missing Telegram credentials:', {
+        token: !!env.TELEGRAM_BOT_TOKEN,
+        chatId: !!env.TELEGRAM_CHAT_ID
+      });
+      return;
+    }
+
     const botUrl = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+    console.log('Sending to Telegram URL:', botUrl.substring(0, 50) + '...');
 
     // Fire-and-forget notification
-    fetch(botUrl, {
+    const response = await fetch(botUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -303,7 +346,14 @@ ${isTestMode ? '\n⚠️ To enable Sierra saving, remove test mode from worker.j
         text: message,
         parse_mode: 'HTML'
       })
-    }).catch(err => console.error('Telegram notify error:', err));
+    });
+
+    const responseData = await response.json();
+    console.log('Telegram API response:', response.status, responseData);
+
+    if (!response.ok) {
+      console.error('Telegram API error:', responseData);
+    }
 
   } catch (error) {
     console.error('Notification error:', error);
