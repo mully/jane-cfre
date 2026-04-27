@@ -1,0 +1,14 @@
+# Cloudflare Worker Configuration for Jane - CFRE Chatbot
+name = "jane-cfre"
+main = "worker.js"
+compatibility_date = "2026-04-27"
+
+# Environment variables (set these via Cloudflare dashboard or wrangler secret)
+[vars]
+BRAND_NAME = "CY-FAIR Real Estate"
+ASSISTANT_NAME = "Jane"
+
+# Secrets to set:
+# wrangler secret put SIERRA_API_KEY
+# wrangler secret put TELEGRAM_BOT_TOKEN
+# wrangler secret put TELEGRAM_CHAT_ID
