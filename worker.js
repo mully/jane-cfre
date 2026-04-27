@@ -3,11 +3,10 @@
  * Cloudflare Worker for handling chat leads and Q&A
  * 
  * Required Environment Variables:
- * - SIERRA_API_KEY
- * - TELEGRAM_BOT_TOKEN
- * - TELEGRAM_CHAT_ID
- * - ASSISTANT_NAME (optional, defaults to Jane)
- * - BRAND_NAME (optional, defaults to CY-FAIR Real Estate)
+ * - OPENAI_API_KEY (for AI responses)
+ * - TELEGRAM_BOT_TOKEN (for notifications)
+ * - TELEGRAM_CHAT_ID (your Telegram ID)
+ * - SIERRA_API_KEY (optional, for lead creation)
  */
 
 const SIERRA_BASE_URL = 'https://api.sierrainteractivedev.com';
@@ -60,21 +59,18 @@ export default {
 };
 
 /**
- * Handle chat messages - deterministic flows first, then fallbacks
+ * Handle chat messages with AI + Knowledge Base
  */
 async function handleChat(request, env) {
   const body = await request.json();
-  const { message, sessionId, flow, leadData } = body;
+  const { message, sessionId, collected } = body;
 
-  // Log for debugging
-  console.log('Chat request:', { message: message?.substring(0, 50), flow, sessionId });
+  console.log('Chat request:', { message: message?.substring(0, 50), sessionId });
 
-  // DETERMINISTIC FLOWS (no AI needed)
-  
-  // Flow: Initial greeting/buttons
-  if (!flow || flow === 'welcome') {
+  // First message - welcome
+  if (!message || message === '') {
     return jsonResponse({
-      message: "Hi! I'm Jane, CFRE's virtual client concierge. I can help you buy, sell, get your home value, or connect with our team.",
+      message: "Hi! I'm Jane with CY-FAIR Real Estate. I can help you with info about neighborhoods, schools, market trends, or connect you with one of our agents. What can I help you with today?",
       buttons: [
         { label: "Buy a Home", value: "buy", icon: "🏠" },
         { label: "Sell My Home", value: "sell", icon: "💰" },
@@ -85,157 +81,115 @@ async function handleChat(request, env) {
     });
   }
 
-  // Flow: Buy
-  if (flow === 'buy' || detectIntent(message, ['buy', 'purchase', 'looking for home'])) {
-    return jsonResponse({
-      message: "Great! I'd love to help you find your next home. What's your target area or community in the CyFair/Houston area?",
-      flow: 'buy-area',
-      collected: { leadType: 'Buyer', source: 'Website Chat - Buy' }
-    });
-  }
-
-  // Flow: Sell  
-  if (flow === 'sell' || detectIntent(message, ['sell', 'selling', 'list my home'])) {
-    return jsonResponse({
-      message: "Absolutely! I can help you understand your home's value and selling options. What's the property address you'd like to sell?",
-      flow: 'sell-address',
-      collected: { leadType: 'Seller', source: 'Website Chat - Sell' }
-    });
-  }
-
-  // Flow: Home Value
-  if (flow === 'value' || detectIntent(message, ['value', 'worth', 'price', 'home value'])) {
-    return jsonResponse({
-      message: "I'll help you get a home value estimate. What's the property address?",
-      flow: 'value-address',
-      collected: { leadType: 'Seller', source: 'Website Chat - Home Value' }
-    });
-  }
-
-  // Flow: Contact/Talk to Agent
-  if (flow === 'contact' || detectIntent(message, ['contact', 'talk', 'call', 'speak', 'agent'])) {
-    return jsonResponse({
-      message: "I'd be happy to connect you with Jim or our team. What's your name and the best phone number or email to reach you?",
-      flow: 'contact-info',
-      collected: { leadType: 'Both', source: 'Website Chat - Contact Request' }
-    });
-  }
-
-  // Flow: After getting address/area info, move to contact collection
-  if (flow === 'value-address' || flow === 'sell-address') {
-    // User provided address, now ask for contact info
-    const addressInfo = message || 'Address provided';
-    return jsonResponse({
-      message: `Got it! I'll look up information on that property. To send you the home value report, I'll need your name, email, and phone number.`,
-      flow: 'contact-info',
-      collected: { 
-        ...leadData, 
-        address: addressInfo,
-        note: `Property address: ${addressInfo}`
-      }
-    });
-  }
-
-  if (flow === 'buy-area') {
-    const areaInfo = message || 'Area provided';
-    return jsonResponse({
-      message: `${areaInfo} is a great area! To send you available listings and schedule showings, I'll need your name, email, and phone number.`,
-      flow: 'contact-info',
-      collected: { 
-        ...leadData, 
-        area: areaInfo,
-        note: `Interested area: ${areaInfo}`
-      }
-    });
-  }
-
-  // Flow: Collecting contact info (common across flows)
-  if (flow?.endsWith('-contact') || flow?.endsWith('-info')) {
-    // Try to parse contact info from message
+  // Check if user wants to connect with an agent (collect lead info)
+  const lowerMsg = message.toLowerCase();
+  const wantsAgent = ['agent', 'realtor', 'talk', 'call', 'contact', 'reach', 'speak'].some(w => lowerMsg.includes(w));
+  const hasContactInfo = parseContactInfo(message).email || parseContactInfo(message).phone;
+  
+  // If they want an agent and we have their info, capture the lead
+  if (wantsAgent && hasContactInfo) {
     const { name, email, phone } = parseContactInfo(message);
-    
-    // Merge with any previously collected data
-    const collected = {
-      ...leadData,
-      name: name || leadData?.name || null,
-      email: email || leadData?.email || null,
-      phone: phone || leadData?.phone || null
-    };
-    
-    // Check if we have ALL required fields: first name, last name, email, phone
-    const hasFirstName = collected.name?.split(' ')[0];
-    const hasLastName = collected.name?.split(' ').length > 1;
-    const hasEmail = collected.email;
-    const hasPhone = collected.phone;
-    
-    const missingFields = [];
-    if (!hasFirstName) missingFields.push("first name");
-    if (!hasLastName) missingFields.push("last name");
-    if (!hasEmail) missingFields.push("email");
-    if (!hasPhone) missingFields.push("phone number");
-    
-    if (missingFields.length > 0) {
-      // Need more info - tell them what's missing
-      return jsonResponse({
-        message: `To connect you with our team, I'll need your ${missingFields.join(", ")}. Could you provide ${missingFields.length > 1 ? 'those' : 'that'}?`,
-        flow: flow,
-        collected: collected
-      });
-    }
-    
-    // We have all required fields - create lead payload
     const leadPayload = {
-      ...body.collected,
-      firstName: collected.name.split(' ')[0],
-      lastName: collected.name.split(' ').slice(1).join(' '),
-      email: collected.email,
-      phone: collected.phone,
-      leadStatus: 'New',
-      sourceType: 'SierraApi',
-      note: `Captured via Jane chatbot (TEST MODE - NOT SAVED TO SIERRA). Flow: ${flow}. Message: ${message?.substring(0, 100)}`
+      firstName: name?.split(' ')[0] || 'Website',
+      lastName: name?.split(' ').slice(1).join(' ') || 'Visitor',
+      email: email || '',
+      phone: phone || '',
+      leadType: wantsAgent ? 'Both' : 'Buyer',
+      source: 'Website Chat - Jane AI',
+      note: `AI Chat Lead. Message: ${message?.substring(0, 150)}`
     };
 
-    // TEMPORARILY DISABLED: Create lead in Sierra
-    // const result = await createSierraLead(leadPayload);
+    // Notify Jim (TEST MODE - not saving to Sierra yet)
     const result = { success: true, leadId: 'TEST-NOT-SAVED', testMode: true };
-    
-    // Notify Jim (TEST MODE)
     await notifyTelegram(leadPayload, result, env);
 
     return jsonResponse({
-      message: `Thanks ${leadPayload.firstName}! I've passed your information along. Jim or a team member will reach out to you within 24 hours at ${leadPayload.phone || leadPayload.email}. Is there anything specific I can pass along about what you're looking for?`,
-      flow: 'complete',
-      leadCreated: false, // Not actually saved yet
-      testMode: true,
-      buttons: [
-        { label: "No, I'm all set", value: "done", icon: "✅" },
-        { label: "Add more details", value: "more", icon: "📝" }
-      ]
+      message: `Thank you ${leadPayload.firstName}! I've captured your information and Jim or a team member will reach out to you within 24 hours at ${email || phone}. In the meantime, is there anything specific about Cy-Fair real estate I can help with?`,
+      flow: 'complete'
     });
   }
 
-  // Flow: More details after lead creation
-  if (flow === 'complete') {
+  // Check if they want an agent but we need more info
+  if (wantsAgent && !hasContactInfo) {
     return jsonResponse({
-      message: "Perfect! You're all set. Jim or someone from the CFRE team will be in touch soon. Thanks for reaching out!",
-      flow: 'finished',
-      buttons: [
-        { label: "Start Over", value: "welcome", icon: "🔄" }
-      ]
+      message: "I'd be happy to connect you with Jim or one of our agents. Could you share your name, email, and phone number so they can reach you?",
+      flow: 'collect-contact'
     });
   }
 
-  // Fallback for unrecognized input
-  return jsonResponse({
-    message: "I'm here to help! You can choose one of these options or type what you're looking for:",
-    buttons: [
-      { label: "Buy a Home", value: "buy", icon: "🏠" },
-      { label: "Sell My Home", value: "sell", icon: "💰" },
-      { label: "Home Value", value: "value", icon: "📊" },
-      { label: "Talk to Agent", value: "contact", icon: "📞" }
-    ],
-    flow: 'welcome'
+  // AI-powered response with knowledge base
+  try {
+    const knowledge = searchKnowledge(message);
+    const aiResponse = await getAIResponse(message, knowledge, env);
+    
+    return jsonResponse({
+      message: aiResponse,
+      flow: 'ai-chat'
+    });
+  } catch (error) {
+    console.error('AI error:', error);
+    // Fallback to knowledge base only
+    const knowledge = searchKnowledge(message);
+    return jsonResponse({
+      message: `I can help with that! Based on what I know:\n\n${knowledge.substring(0, 500)}...\n\nWould you like to speak with one of our agents for more details?`,
+      flow: 'fallback'
+    });
+  }
+}
+
+/**
+ * Get AI response from OpenAI with knowledge context
+ */
+async function getAIResponse(userMessage, knowledge, env) {
+  if (!env.OPENAI_API_KEY) {
+    // No AI key, return knowledge-based response
+    return `Based on our local expertise: ${knowledge.substring(0, 800)}. Would you like to connect with Jim or one of our agents for personalized assistance?`;
+  }
+
+  const systemPrompt = `You are Jane, a friendly and knowledgeable virtual assistant for CY-FAIR Real Estate (CFRE), a boutique real estate brokerage in Cypress, Texas (Cy-Fair area).
+
+YOUR ROLE:
+- Answer questions about Cy-Fair real estate, neighborhoods, schools, and market conditions
+- Be conversational, helpful, and professional
+- Use the provided KNOWLEDGE BASE to answer accurately
+- If you don't know something specific, be honest and offer to connect them with an agent
+- Always mention you're an AI assistant and offer human help when appropriate
+
+KNOWLEDGE BASE:
+${knowledge}
+
+GUIDELINES:
+- Keep responses conversational but concise (2-4 sentences)
+- Mention specific neighborhoods, schools, and data when relevant
+- If they seem ready to buy/sell, suggest speaking with Jim or an agent
+- Phone: 713-446-1018, Website: CyFairRealEstate.com
+- Be warm and approachable - use "we" and "our team"`;
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${env.OPENAI_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',  // Cheap but capable
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage }
+      ],
+      temperature: 0.7,
+      max_tokens: 250
+    })
   });
+
+  if (!response.ok) {
+    const error = await response.json();
+    console.error('OpenAI error:', error);
+    throw new Error('AI service error');
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
 }
 
 /**
@@ -396,8 +350,185 @@ function parseContactInfo(text) {
 }
 
 /**
- * Serve the widget.js file
+ * CFRE Knowledge Base - Embedded wiki data for Jane
  */
+const CFRE_KNOWLEDGE = {
+  company: {
+    name: "CY-FAIR Real Estate",
+    description: "A boutique real estate brokerage serving the Cy-Fair and greater Houston area with personalized service and local expertise.",
+    phone: "713-446-1018",
+    website: "CyFairRealEstate.com",
+    address: "Cypress, TX (Cy-Fair area)"
+  },
+  
+  agents: {
+    jim_mulholland: {
+      name: "Jim Mulholland",
+      role: "Broker/Owner",
+      specialties: ["Luxury homes", "Investor clients", "New construction", "Relocation"],
+      experience: "15+ years in Cy-Fair real estate",
+      contact: "Jim@cfre.me"
+    },
+    wendy: {
+      name: "Wendy",
+      role: "Owner/Agent", 
+      specialties: ["First-time buyers", "Family homes"],
+      contact: "Available through main office"
+    },
+    kyle: {
+      name: "Kyle",
+      role: "Agent",
+      specialties: ["First-time buyers", "Young professionals", "Condos and townhomes"]
+    },
+    justin: {
+      name: "Justin", 
+      role: "Agent",
+      specialties: ["Residential sales", "Buyer representation"]
+    },
+    tammy: {
+      name: "Tammy",
+      role: "Agent",
+      specialties: ["Residential sales", "Seller representation"]
+    },
+    ana: {
+      name: "Ana",
+      role: "Agent",
+      specialties: ["Bilingual (Spanish)", "Family homes", "First-time buyers"]
+    },
+    tricia: {
+      name: "Tricia",
+      role: "Agent",
+      specialties: ["Residential sales", "Community expert"]
+    }
+  },
+  
+  neighborhoods: {
+    bridgeland: {
+      name: "Bridgeland",
+      description: "Master-planned community with excellent schools, lakes, trails, and multiple villages. Popular with families.",
+      schools: "Bridgeland High School (9/10), Wells Elementary, Smith Middle School",
+      builders: ["Perry Homes", "Taylor Morrison", "Lennar", "Highland Homes"],
+      price_range: "$400K - $1.5M+"
+    },
+    cypress_creek_lakes: {
+      name: "Cypress Creek Lakes",
+      description: "Established community with mature trees, community pools, and tennis courts. Good school zone.",
+      schools: "Cy-Ranch High School, Warner Elementary",
+      price_range: "$350K - $700K"
+    },
+    towne_lake: {
+      name: "Towne Lake",
+      description: "Large master-planned community with 300-acre lake, boating, and waterfront properties.",
+      schools: "Cypress Ranch High School, Rennell Elementary",
+      builders: ["Lennar", "KB Home", "Perry Homes"],
+      price_range: "$350K - $900K"
+    },
+    blackhorse_ranch: {
+      name: "Blackhorse Ranch",
+      description: "Golf course community with custom homes and established neighborhoods.",
+      schools: "Cypress Springs High School",
+      price_range: "$400K - $800K"
+    },
+    coles_crossing: {
+      name: "Coles Crossing",
+      description: "Family-friendly community with great amenities and Cy-Fair ISD schools.",
+      schools: "Cy-Fair High School, Goodson Middle School",
+      price_range: "$300K - $600K"
+    }
+  },
+  
+  schools: {
+    cy_fair_isd: {
+      name: "Cy-Fair ISD",
+      rating: "A-rated district",
+      note: "One of the largest and highest-performing school districts in Texas",
+      top_schools: ["Bridgeland High", "Cypress Ranch High", "Cy-Fair High", "Langham Creek High"]
+    },
+    bridgeland_high: {
+      name: "Bridgeland High School",
+      rating: "9/10 GreatSchools",
+      note: "Top-rated high school in the area, strong academics and athletics"
+    }
+  },
+  
+  market_stats: {
+    current: "As of 2024, Cy-Fair area median home price is approximately $380,000",
+    trend: "Steady appreciation with 3-5% annual growth typical for the area",
+    inventory: "Moderate inventory levels - still a seller's market in most price ranges under $500K",
+    hot_areas: "Bridgeland, Towne Lake, and Cypress Creek Lakes remain the most active"
+  },
+  
+  builders: {
+    perry_homes: "Texas-based builder known for quality construction and energy efficiency",
+    lennar: "National builder offering everything's included packages and quick move-in homes",
+    taylor_morrison: "Premium builder with customizable floor plans",
+    highland_homes: "Luxury custom builder in select Cy-Fair communities",
+    kb_home: "Affordable new construction with personalization options"
+  },
+  
+  services: {
+    buying: "Full buyer representation including MLS access, showing coordination, offer negotiation, and closing support",
+    selling: "Comprehensive marketing including professional photography, online syndication, open houses, and negotiation",
+    home_value: "Free comparative market analysis (CMA) to determine your home's current market value",
+    new_construction: "Representation for buyers purchasing new builds (no cost to buyer)"
+  }
+};
+
+/**
+ * Search knowledge base for relevant context
+ */
+function searchKnowledge(query) {
+  const query_lower = query.toLowerCase();
+  let results = [];
+  
+  // Search neighborhoods
+  for (const [key, data] of Object.entries(CFRE_KNOWLEDGE.neighborhoods)) {
+    if (query_lower.includes(key.replace('_', ' ')) || 
+        query_lower.includes(data.name.toLowerCase())) {
+      results.push(`Neighborhood: ${data.name} - ${data.description}. Schools: ${data.schools}. Price range: ${data.price_range}. Builders: ${data.builders?.join(', ') || 'Various'}`);
+    }
+  }
+  
+  // Search schools
+  if (query_lower.includes('school') || query_lower.includes('education') || query_lower.includes('isd')) {
+    results.push(`Schools: ${CFRE_KNOWLEDGE.schools.cy_fair_isd.name} is ${CFRE_KNOWLEDGE.schools.cy_fair_isd.rating}. ${CFRE_KNOWLEDGE.schools.cy_fair_isd.note}. Top schools include ${CFRE_KNOWLEDGE.schools.cy_fair_isd.top_schools.join(', ')}.`);
+  }
+  
+  // Search agents
+  for (const [key, agent] of Object.entries(CFRE_KNOWLEDGE.agents)) {
+    if (query_lower.includes(agent.name.toLowerCase()) || 
+        query_lower.includes('agent') || 
+        query_lower.includes('realtor') ||
+        agent.specialties.some(s => query_lower.includes(s.toLowerCase()))) {
+      results.push(`Agent: ${agent.name} - ${agent.role}. Specialties: ${agent.specialties.join(', ')}. ${agent.experience || ''}`);
+    }
+  }
+  
+  // Search market stats
+  if (query_lower.includes('market') || query_lower.includes('price') || query_lower.includes('value') || query_lower.includes('cost')) {
+    results.push(`Market: ${CFRE_KNOWLEDGE.market_stats.current}. Trend: ${CFRE_KNOWLEDGE.market_stats.trend}. ${CFRE_KNOWLEDGE.market_stats.inventory}`);
+  }
+  
+  // Search builders
+  for (const [key, info] of Object.entries(CFRE_KNOWLEDGE.builders)) {
+    if (query_lower.includes(key.replace('_', ' '))) {
+      results.push(`Builder: ${key.replace('_', ' ')} - ${info}`);
+    }
+  }
+  
+  // Search services
+  if (query_lower.includes('buy') || query_lower.includes('purchase')) {
+    results.push(`Service: ${CFRE_KNOWLEDGE.services.buying}`);
+  }
+  if (query_lower.includes('sell') || query_lower.includes('listing')) {
+    results.push(`Service: ${CFRE_KNOWLEDGE.services.selling}`);
+  }
+  
+  // Always include company info
+  results.unshift(`About CFRE: ${CFRE_KNOWLEDGE.company.description} Contact: ${CFRE_KNOWLEDGE.company.phone}. Website: ${CFRE_KNOWLEDGE.company.website}`);
+  
+  return results.join('\n\n');
+}
 function serveWidget() {
   const widgetCode = `(function() {
   'use strict';
@@ -407,7 +538,7 @@ function serveWidget() {
     apiUrl: 'https://jane-cfre.jim-787.workers.dev/api/chat',
     brandName: 'CY-FAIR Real Estate',
     assistantName: 'Jane',
-    primaryColor: '#1a5f7a',
+    primaryColor: '#12122a',  // CFRE company blue
     position: 'right',
     autoOpen: false,
     ...window.CFREChatConfig

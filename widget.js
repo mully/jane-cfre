@@ -12,13 +12,13 @@
 
   // Configuration
   const CONFIG = {
-    apiUrl: 'https://jane.cfre.workers.dev/api/chat',  // Will be your Cloudflare Worker URL
+    apiUrl: 'https://jane-cfre.jim-787.workers.dev/api/chat',
     brandName: 'CY-FAIR Real Estate',
     assistantName: 'Jane',
-    primaryColor: '#1a5f7a',  // CFRE blue
-    position: 'right',  // 'left' or 'right'
+    primaryColor: '#12122a',  // CFRE company blue
+    position: 'right',
     autoOpen: false,
-    ...window.CFREChatConfig  // Allow user overrides
+    ...window.CFREChatConfig
   };
 
   // State
