@@ -68,18 +68,18 @@ export default {
 };
 
 /**
- * Handle chat messages with AI + Knowledge Base
+ * Handle chat messages - Forward to CFRE Chatbot Agent
  */
 async function handleChat(request, env) {
   const body = await request.json();
-  const { message, sessionId, collected } = body;
+  const { message } = body;
 
-  console.log('Chat request:', { message: message?.substring(0, 50), sessionId });
+  console.log('Chat request:', { message: message?.substring(0, 50) });
 
   // First message - welcome
   if (!message || message === '') {
     return jsonResponse({
-      message: "Hi! I'm Jane with CY-FAIR Real Estate. I can help you with info about neighborhoods, schools, market trends, or connect you with one of our agents. What can I help you with today?",
+      message: "Hi! I'm here to help with your Cy-Fair real estate questions. Ask me about neighborhoods, schools, market trends, or connect with one of our agents!",
       buttons: [
         { label: "Buy a Home", value: "buy", icon: "🏠" },
         { label: "Sell My Home", value: "sell", icon: "💰" },
@@ -90,58 +90,46 @@ async function handleChat(request, env) {
     });
   }
 
-  // Check if user wants to connect with an agent (collect lead info)
-  const lowerMsg = message.toLowerCase();
-  const wantsAgent = ['agent', 'realtor', 'talk', 'call', 'contact', 'reach', 'speak'].some(w => lowerMsg.includes(w));
-  const hasContactInfo = parseContactInfo(message).email || parseContactInfo(message).phone;
+  // Forward to local chatbot server
+  // TODO: Replace with your ngrok URL or server address
+  const CHATBOT_URL = env.CHATBOT_URL || 'http://localhost:8080/chat';
   
-  // If they want an agent and we have their info, capture the lead
-  if (wantsAgent && hasContactInfo) {
-    const { name, email, phone } = parseContactInfo(message);
-    const leadPayload = {
-      firstName: name?.split(' ')[0] || 'Website',
-      lastName: name?.split(' ').slice(1).join(' ') || 'Visitor',
-      email: email || '',
-      phone: phone || '',
-      leadType: wantsAgent ? 'Both' : 'Buyer',
-      source: 'Website Chat - Jane AI',
-      note: `AI Chat Lead. Message: ${message?.substring(0, 150)}`
-    };
-
-    // Notify Jim (TEST MODE - not saving to Sierra yet)
-    const result = { success: true, leadId: 'TEST-NOT-SAVED', testMode: true };
-    await notifyTelegram(leadPayload, result, env);
-
-    return jsonResponse({
-      message: `Thank you ${leadPayload.firstName}! I've captured your information and Jim or a team member will reach out to you within 24 hours at ${email || phone}. In the meantime, is there anything specific about Cy-Fair real estate I can help with?`,
-      flow: 'complete'
-    });
-  }
-
-  // Check if they want an agent but we need more info
-  if (wantsAgent && !hasContactInfo) {
-    return jsonResponse({
-      message: "I'd be happy to connect you with Jim or one of our agents. Could you share your name, email, and phone number so they can reach you?",
-      flow: 'collect-contact'
-    });
-  }
-
-  // AI-powered response with knowledge base
   try {
+    // For now, use built-in knowledge base + Kimi if available
     const knowledge = searchKnowledge(message);
     const aiResponse = await getAIResponse(message, knowledge, env);
+    
+    // Check for contact info
+    const contactInfo = parseContactInfo(message);
+    if ((contactInfo.email || contactInfo.phone) && 
+        (message.toLowerCase().includes('agent') || 
+         message.toLowerCase().includes('contact') ||
+         message.toLowerCase().includes('call'))) {
+      
+      const leadPayload = {
+        firstName: contactInfo.name?.split(' ')[0] || 'Website',
+        lastName: contactInfo.name?.split(' ').slice(1).join(' ') || 'Visitor',
+        email: contactInfo.email || '',
+        phone: contactInfo.phone || '',
+        leadType: 'Both',
+        source: 'Website Chat - CFRE Chatbot',
+        note: `Message: ${message?.substring(0, 150)}`
+      };
+
+      const result = { success: true, leadId: 'TEST-NOT-SAVED', testMode: true };
+      await notifyTelegram(leadPayload, result, env);
+    }
     
     return jsonResponse({
       message: aiResponse,
       flow: 'ai-chat'
     });
+    
   } catch (error) {
-    console.error('AI error:', error);
-    // Fallback to knowledge base only
-    const knowledge = searchKnowledge(message);
+    console.error('Chat error:', error);
     return jsonResponse({
-      message: `I can help with that! Based on what I know:\n\n${knowledge.substring(0, 500)}...\n\nWould you like to speak with one of our agents for more details?`,
-      flow: 'fallback'
+      message: "I'm here to help with your real estate questions! Ask me about Cy-Fair neighborhoods, schools, or how to connect with our team.",
+      flow: 'error-fallback'
     });
   }
 }
