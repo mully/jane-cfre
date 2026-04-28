@@ -115,6 +115,7 @@ async function handleChat(request, env) {
       message: data.reply || data.message || "I'm here to help with your Cy-Fair real estate questions.",
       flow: 'hermes-proxy',
       profile: data.profile || 'cfrechatbot',
+      lead_created: Boolean(data.lead_created),
     });
   } catch (error) {
     return jsonResponse({
