@@ -11,43 +11,59 @@
   const storageKey = 'cfreChatSessionId';
   const sessionId = localStorage.getItem(storageKey) || ('cfre-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10));
   localStorage.setItem(storageKey, sessionId);
+  const pageViewKey = 'cfreJanePageViews';
+  const proactiveEvery = Number(cfg.proactiveEvery || 5);
+  let pageViews = Number(localStorage.getItem(pageViewKey) || '0') + 1;
+  localStorage.setItem(pageViewKey, String(pageViews));
   let sessionNotified = false;
 
   const style = document.createElement('style');
   style.textContent = `
-    #cfre-jane-button { position: fixed; right: 22px; bottom: 22px; z-index: 999999; background: ${primary}; color: white; border: 0; border-radius: 999px; padding: 12px 16px; font: 700 15px system-ui, -apple-system, Segoe UI, sans-serif; box-shadow: 0 10px 30px rgba(0,0,0,.25); cursor: pointer; display: flex; align-items: center; gap: 10px; }
-    #cfre-jane-button .mini-avatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(255,255,255,.8); }
-    #cfre-jane-panel { position: fixed; right: 22px; bottom: 82px; z-index: 999999; width: min(390px, calc(100vw - 32px)); height: min(590px, calc(100vh - 110px)); background: #fff; border-radius: 18px; box-shadow: 0 16px 50px rgba(0,0,0,.30); display: none; overflow: hidden; border: 1px solid rgba(18,18,42,.16); font-family: system-ui, -apple-system, Segoe UI, sans-serif; }
+    #cfre-jane-button { position: fixed; right: 18px; bottom: 18px; z-index: 999999; width: 66px; height: 66px; background: transparent; color: white; border: 0; border-radius: 50%; padding: 0; box-shadow: 0 10px 28px rgba(0,0,0,.25); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    #cfre-jane-button .mini-avatar { width: 66px; height: 66px; border-radius: 50%; object-fit: cover; border: 3px solid white; background: white; }
+    #cfre-jane-button .button-status { position: absolute; left: 4px; bottom: 8px; width: 15px; height: 15px; background: #30d158; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 0 rgba(48,209,88,.65); animation: cfrePulse 1.8s infinite; }
+    #cfre-jane-panel { position: fixed; right: 18px; bottom: 92px; z-index: 999999; width: min(380px, calc(100vw - 28px)); height: min(540px, calc(100dvh - 130px)); max-height: 540px; background: #fff; border-radius: 18px; box-shadow: 0 16px 50px rgba(0,0,0,.30); display: none; overflow: hidden; border: 1px solid rgba(18,18,42,.16); font-family: system-ui, -apple-system, Segoe UI, sans-serif; }
     #cfre-jane-panel.open { display: flex; flex-direction: column; }
-    #cfre-jane-header { background: ${primary}; color: white; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
-    #cfre-jane-avatar-wrap { position: relative; width: 46px; height: 46px; flex: 0 0 auto; }
-    #cfre-jane-avatar { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(255,255,255,.9); background: white; }
-    #cfre-jane-status { position: absolute; left: 0px; bottom: 3px; width: 13px; height: 13px; background: #30d158; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 0 rgba(48,209,88,.65); animation: cfrePulse 1.8s infinite; }
+    #cfre-jane-header { background: ${primary}; color: white; padding: 11px 14px; display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+    #cfre-jane-avatar-wrap { position: relative; width: 40px; height: 40px; flex: 0 0 auto; }
+    #cfre-jane-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(255,255,255,.9); background: white; }
     @keyframes cfrePulse { 0% { box-shadow: 0 0 0 0 rgba(48,209,88,.65); } 70% { box-shadow: 0 0 0 8px rgba(48,209,88,0); } 100% { box-shadow: 0 0 0 0 rgba(48,209,88,0); } }
-    #cfre-jane-title { font-weight: 800; font-size: 16px; line-height: 1.2; }
+    #cfre-jane-title { font-weight: 800; font-size: 16px; line-height: 1.15; }
     #cfre-jane-subtitle { opacity: .88; font-size: 12px; margin-top: 2px; }
     #cfre-jane-close { margin-left: auto; background: transparent; color: white; border: 0; font-size: 22px; cursor: pointer; line-height: 1; opacity: .9; }
-    #cfre-jane-messages { flex: 1; padding: 14px; overflow: auto; background: #f7f7fb; }
-    .cfre-msg { margin: 9px 0; padding: 10px 12px; border-radius: 14px; max-width: 86%; line-height: 1.38; font-size: 14px; white-space: pre-wrap; }
+    #cfre-jane-messages { flex: 1; padding: 12px; overflow: auto; background: #f7f7fb; min-height: 0; }
+    .cfre-msg { margin: 8px 0; padding: 9px 11px; border-radius: 14px; max-width: 86%; line-height: 1.35; font-size: 14px; white-space: pre-wrap; }
     .cfre-msg.bot { background: white; color: #20202a; border-bottom-left-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
     .cfre-msg.user { background: ${primary}; color: white; margin-left: auto; border-bottom-right-radius: 4px; }
-    #cfre-jane-form { display: flex; gap: 8px; padding: 12px; border-top: 1px solid #eee; background: white; }
-    #cfre-jane-input { flex: 1; border: 1px solid #d8d8e2; border-radius: 999px; padding: 11px 13px; font-size: 14px; outline: none; }
+    #cfre-jane-form { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #eee; background: white; flex: 0 0 auto; }
+    #cfre-jane-input { flex: 1; border: 1px solid #d8d8e2; border-radius: 999px; padding: 10px 12px; font-size: 14px; outline: none; min-width: 0; }
     #cfre-jane-input:focus { border-color: ${primary}; box-shadow: 0 0 0 3px rgba(18,18,42,.10); }
-    #cfre-jane-send { background: ${primary}; color: white; border: 0; border-radius: 999px; padding: 0 15px; font-weight: 800; cursor: pointer; }
-    #cfre-jane-powered { text-align: center; font-size: 11px; color: #777; padding: 0 0 9px; background: white; }
+    #cfre-jane-send { background: ${primary}; color: white; border: 0; border-radius: 999px; padding: 0 13px; font-weight: 800; cursor: pointer; }
+    #cfre-jane-powered { text-align: center; font-size: 11px; color: #777; padding: 0 0 8px; background: white; flex: 0 0 auto; }
+    @media (max-width: 520px) {
+      #cfre-jane-button { right: 14px; bottom: 14px; width: 60px; height: 60px; }
+      #cfre-jane-button .mini-avatar { width: 60px; height: 60px; }
+      #cfre-jane-button .button-status { left: 2px; bottom: 7px; width: 14px; height: 14px; }
+      #cfre-jane-panel { left: 12px; right: 12px; bottom: 84px; width: auto; height: min(455px, calc(100dvh - 120px)); max-height: 455px; border-radius: 16px; }
+      #cfre-jane-header { padding: 9px 12px; }
+      #cfre-jane-avatar-wrap, #cfre-jane-avatar { width: 36px; height: 36px; }
+      #cfre-jane-title { font-size: 15px; }
+      #cfre-jane-subtitle { font-size: 11px; }
+      .cfre-msg { font-size: 13px; }
+    }
   `;
   document.head.appendChild(style);
 
   const button = document.createElement('button');
   button.id = 'cfre-jane-button';
-  button.innerHTML = `<img class="mini-avatar" src="${avatarUrl}" alt="${assistantName}" /><span>Chat with ${assistantName}</span>`;
+  button.setAttribute('aria-label', `Chat with ${assistantName}`);
+  button.innerHTML = `<img class="mini-avatar" src="${avatarUrl}" alt="${assistantName}" /><span class="button-status" aria-hidden="true"></span>`;
 
   const panel = document.createElement('div');
   panel.id = 'cfre-jane-panel';
   panel.innerHTML = `
     <div id="cfre-jane-header">
-      <div id="cfre-jane-avatar-wrap"><img id="cfre-jane-avatar" src="${avatarUrl}" alt="${assistantName}" /><span id="cfre-jane-status"></span></div>
+      <div id="cfre-jane-avatar-wrap"><img id="cfre-jane-avatar" src="${avatarUrl}" alt="${assistantName}" /></div>
       <div><div id="cfre-jane-title">${assistantName}</div><div id="cfre-jane-subtitle">Assistant at ${brandName}</div></div>
       <button id="cfre-jane-close" type="button" aria-label="Close chat">×</button>
     </div>
@@ -100,14 +116,25 @@
     }
   }
 
-  function openPanel() {
-    panel.classList.add('open');
+  function ensureGreeting() {
     if (!messages.dataset.started) {
       messages.dataset.started = '1';
       addMsg("Hi! My name is " + assistantName + ", I'm an assistant at " + brandName + ". How can I help you?", 'bot');
       notifySessionStart();
     }
+  }
+
+  function openPanel() {
+    panel.classList.add('open');
+    ensureGreeting();
     input.focus();
+  }
+
+  function shouldProactivelyOpen() {
+    if (cfg.disableProactiveOpen) return false;
+    if (panel.classList.contains('open')) return false;
+    if (!proactiveEvery || proactiveEvery < 2) return false;
+    return pageViews > 1 && pageViews % proactiveEvery === 0;
   }
 
   button.addEventListener('click', () => {
@@ -115,6 +142,12 @@
     else openPanel();
   });
   closeBtn.addEventListener('click', () => panel.classList.remove('open'));
+
+  if (shouldProactivelyOpen()) {
+    setTimeout(() => {
+      if (!panel.classList.contains('open')) openPanel();
+    }, Number(cfg.proactiveDelayMs || 1800));
+  }
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
