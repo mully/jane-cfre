@@ -68,10 +68,10 @@ export default {
 };
 
 async function handleChat(request, env) {
-  if (!env.JANE_BACKEND_URL) {
+  if (!env.CHATBOT_BACKEND_URL && !env.JANE_BACKEND_URL) {
     return jsonResponse({
       message: 'Jane is almost ready, but the backend URL is not configured yet.',
-      error: 'Missing JANE_BACKEND_URL',
+      error: 'Missing CHATBOT_BACKEND_URL',
     }, 503);
   }
 
