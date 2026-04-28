@@ -1,185 +1,158 @@
-# Jane - CFRE Website Chatbot Deployment Guide
+# Deploy Jane to CyFairRealEstate.com
 
-## Overview
-Jane is a custom website chatbot for CyFairRealEstate.com that captures leads and sends them directly to Sierra Interactive via Cloudflare Workers.
+This repo is already connected to Cloudflare. Pushes to `main` should trigger the Cloudflare deployment that was configured from GitHub.
 
-## Architecture
-- **Frontend:** JavaScript widget (widget.js) - embeds on your website
-- **Backend:** Cloudflare Worker (worker.js) - handles API calls securely
-- **CRM:** Sierra Interactive API - direct lead creation
-- **Notifications:** Telegram alerts to Jim
+## 1. Confirm Jane works locally
 
-## Step 1: Set Up Cloudflare Account
+Jane's local backend is the FastAPI bridge:
 
-1. Go to https://dash.cloudflare.com/sign-up
-2. Create a free account (no credit card required)
-3. Verify your email
+```text
+/Users/jim/.hermes/profiles/cfrechatbot/server.py
+```
 
-## Step 2: Install Wrangler CLI
+Run it with Hermes' Python environment:
 
 ```bash
-# Install Wrangler globally
-npm install -g wrangler
-
-# Login to Cloudflare
-wrangler login
+/Users/jim/.hermes/hermes-agent/venv/bin/python3 /Users/jim/.hermes/profiles/cfrechatbot/server.py
 ```
 
-This will open a browser to authenticate.
-
-## Step 3: Deploy the Worker
+Verify locally:
 
 ```bash
-# Navigate to the project directory
-cd /Users/jim/.hermes/cfre-jane-cloudflare
-
-# Create the worker
-wrangler deploy
+python3 - <<'PY'
+import json, urllib.request
+print(urllib.request.urlopen('http://127.0.0.1:8084/health').read().decode())
+req=urllib.request.Request('http://127.0.0.1:8084/chat', data=json.dumps({'message':'Tell me about Bridgeland.'}).encode(), headers={'Content-Type':'application/json'}, method='POST')
+print(urllib.request.urlopen(req, timeout=120).read().decode())
+PY
 ```
 
-Your worker will be deployed to: `https://jane-cfre.<your-subdomain>.workers.dev`
+Expected:
 
-## Step 4: Set Secrets (IMPORTANT)
+- `/health` returns status ok.
+- `/chat` returns a Jane answer.
 
-These are never exposed in code:
+## 2. Create a public HTTPS backend URL
+
+The Worker cannot call `127.0.0.1`. Create a public URL that forwards to local port 8084.
+
+Recommended production option:
+
+```text
+Cloudflare Tunnel -> http://127.0.0.1:8084
+```
+
+Suggested hostname:
+
+```text
+jane-origin.cyfairrealestate.com
+```
+
+Then the public backend URL is:
+
+```text
+https://jane-origin.cyfairrealestate.com
+```
+
+For quick temporary testing, ngrok can expose port 8084, but the URL changes unless using a paid/static domain.
+
+## 3. Set Cloudflare Worker variable
+
+In Cloudflare Dashboard:
+
+1. Workers & Pages
+2. jane-cfre
+3. Settings
+4. Variables
+5. Add/update variable:
+
+```text
+JANE_BACKEND_URL=https://jane-origin.cyfairrealestate.com
+```
+
+Save and redeploy if Cloudflare does not automatically redeploy.
+
+No OpenAI/Kimi/Sierra key is required in this Worker for basic chat proxy mode.
+
+## 4. Deploy Worker from GitHub
+
+Because this repository is connected to Cloudflare, commit and push to GitHub:
 
 ```bash
-# Sierra API Key
-wrangler secret put SIERRA_API_KEY
-# Enter: b9600377-1eb4-4a57-9e3c-29c8c3122a96
-
-# Telegram Bot Token (create via @BotFather)
-wrangler secret put TELEGRAM_BOT_TOKEN
-# Enter: your_bot_token_here
-
-# Telegram Chat ID (Jim's ID)
-wrangler secret put TELEGRAM_CHAT_ID
-# Enter: 7760802474
+git add worker.js wrangler.toml README.md DEPLOY.md
+git commit -m "Switch Jane Worker to Hermes backend proxy"
+git push origin main
 ```
 
-## Step 5: Test the API
+Cloudflare should redeploy automatically.
+
+If manually configuring GitHub integration in Cloudflare:
+
+- Build command: leave empty
+- Deploy command: `npx wrangler deploy`
+
+## 5. Configure Worker custom domain
+
+Use either:
+
+```text
+https://jane-cfre.cyfairrealestate.com
+```
+
+or, if you prefer:
+
+```text
+https://chat.cyfairrealestate.com
+```
+
+Cloudflare Worker should serve:
+
+```text
+/health
+/widget.js
+/api/chat
+```
+
+Test:
 
 ```bash
-# Health check
-curl https://jane-cfre.<your-subdomain>.workers.dev/health
-
-# Test chat endpoint
-curl -X POST https://jane-cfre.<your-subdomain>.workers.dev/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message":"", "flow":"welcome"}'
+python3 - <<'PY'
+import json, urllib.request
+base='https://jane-cfre.cyfairrealestate.com'
+print(urllib.request.urlopen(base + '/health').read().decode())
+req=urllib.request.Request(base + '/api/chat', data=json.dumps({'message':'Tell me about Hockley new construction.'}).encode(), headers={'Content-Type':'application/json'}, method='POST')
+print(urllib.request.urlopen(req, timeout=120).read().decode())
+PY
 ```
 
-## Step 6: Update Worker.js with Telegram Token
+## 6. Add widget to CyFairRealEstate.com
 
-Before deploying, update line 8 in `worker.js`:
-
-```javascript
-const JIM_TELEGRAM_BOT = 'https://api.telegram.org/bot<YOUR_BOT_TOKEN>/sendMessage';
-```
-
-Replace `<YOUR_BOT_TOKEN>` with your actual bot token from @BotFather.
-
-## Step 7: Host the Widget
-
-Option A: Cloudflare Pages (Recommended)
-```bash
-# Upload widget.js to Cloudflare Pages or R2
-# Get URL: https://chat.cyfairrealestate.com/widget.js
-```
-
-Option B: Self-host on your website
-```bash
-# Upload widget.js to your web server
-# Access via: https://cyfairrealestate.com/js/widget.js
-```
-
-## Step 8: Embed on Website
-
-Add this to your website's HTML (before closing `</body>` tag):
+Add before `</body>`:
 
 ```html
 <script>
   window.CFREChatConfig = {
-    apiUrl: 'https://jane-cfre.<your-subdomain>.workers.dev/api/chat',
+    apiUrl: 'https://jane-cfre.cyfairrealestate.com/api/chat',
     brandName: 'CY-FAIR Real Estate',
-    assistantName: 'Jane'
+    assistantName: 'Jane',
+    primaryColor: '#12122a'
   };
 </script>
-<script src="https://chat.cyfairrealestate.com/widget.js" async></script>
+<script src="https://jane-cfre.cyfairrealestate.com/widget.js" async></script>
 ```
 
-## Step 9: Test End-to-End
+Typo checks:
 
-1. Visit your website
-2. Click the chat bubble
-3. Select "Buy a Home"
-4. Enter your info
-5. Check Sierra Interactive for new lead
-6. Check Telegram for notification
+- `CFREChatConfig`, not `CFREChatContig`
+- `widget.js`, not `widget.is`
+- `async`, not `asvnc`
 
-## Custom Domain (Optional)
+## 7. Production hardening before broad public launch
 
-To use `chat.cyfairrealestate.com`:
+Add next:
 
-1. In Cloudflare dashboard, go to your Worker
-2. Click "Triggers" tab
-3. Click "Add Custom Domain"
-4. Enter: `chat.cyfairrealestate.com`
-5. Add DNS record in your domain registrar
-
-## Files Structure
-
-```
-cfre-jane-cloudflare/
-├── worker.js           # Backend API (Cloudflare Worker)
-├── widget.js           # Frontend widget (host anywhere)
-├── wrangler.toml       # Worker configuration
-├── DEPLOY.md          # This file
-└── README.md          # User documentation
-```
-
-## Costs
-
-- **Cloudflare Workers Free Tier:** 100,000 requests/day (more than enough)
-- **Cloudflare Pages/R2:** Free for hosting widget.js
-- **Total: $0/month**
-
-## Troubleshooting
-
-**Worker not deploying?**
-- Check `wrangler.toml` is valid
-- Run `wrangler login` again
-
-**Leads not creating?**
-- Check Sierra API key is set as secret: `wrangler secret list`
-- Check worker logs: `wrangler tail`
-
-**Widget not showing?**
-- Check browser console for CORS errors
-- Verify `apiUrl` in config matches worker URL
-- Ensure `widget.js` is being loaded (check Network tab)
-
-**Telegram notifications not working?**
-- Verify bot token is correct
-- Ensure Jim has started the bot (@YourBotName)
-- Check chat ID is correct (get from @userinfobot)
-
-## Security Notes
-
-- API keys are stored as secrets, never in code
-- Worker validates all inputs
-- CORS headers restrict to your domain
-- No sensitive data exposed to browser
-
-## Next Steps After Deploy
-
-1. Add more flows (property search, financing questions)
-2. Style widget to match CFRE brand colors
-3. Add analytics/tracking
-4. A/B test different greeting messages
-5. Add AI fallback for complex questions (Phase 2)
-
-## Support
-
-If stuck on any step, the Cloudflare docs are excellent:
-https://developers.cloudflare.com/workers/
+- LaunchAgent or VPS process manager for Jane backend.
+- Rate limiting/bot protection.
+- Lead capture logging.
+- Telegram notification for complete leads.
+- Sierra lead creation after test mode is verified.

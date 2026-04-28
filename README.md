@@ -1,99 +1,76 @@
 # Jane - CFRE Virtual Client Concierge
 
-A custom website chatbot for CyFairRealEstate.com that captures leads and integrates directly with Sierra Interactive.
+Jane is the public website chat assistant for CyFairRealEstate.com.
 
-## Quick Start
+This repository is the Cloudflare Worker/widget layer. It does not run the AI model inside Cloudflare. Instead, it serves the browser widget and proxies chat requests to the working Hermes `cfrechatbot` profile.
 
-1. **Sign up** for Cloudflare (free): https://dash.cloudflare.com
-2. **Deploy** the worker (5 minutes)
-3. **Add** widget.js to your website
-4. **Test** lead capture
+## Current Architecture
 
-## What Jane Does
-
-- 🏠 **Greets visitors** with friendly, professional chat
-- 📋 **Collects lead info** (name, phone, email, property interest)
-- 🔄 **Routes to Sierra** CRM automatically
-- 📢 **Alerts Jim** via Telegram instantly
-- 🛡️ **Secures data** - API keys hidden, no Zapier needed
-
-## Cost
-
-**$0/month** - Uses Cloudflare Free Tier (100k requests/day)
-
-## Flow
-
+```text
+CyFairRealEstate.com
+  -> Cloudflare Worker /widget.js
+  -> Cloudflare Worker /api/chat
+  -> JANE_BACKEND_URL/chat
+  -> Jane FastAPI bridge on port 8084
+  -> Hermes profile cfrechatbot
+  -> OpenAI Direct gpt-5.4-mini
 ```
-Visitor clicks chat
-    ↓
-Jane offers: Buy | Sell | Home Value | Contact
-    ↓
-Collects info naturally
-    ↓
-Creates lead in Sierra
-    ↓
-Jim gets Telegram alert
-```
+
+Why this architecture:
+
+- Jane's personality and knowledge live in the Hermes profile, not inside Worker code.
+- We avoid the old Kimi/OpenRouter Worker errors.
+- Cloudflare only handles public HTTPS, widget delivery, CORS, and proxying.
+- API keys stay out of browser JavaScript.
 
 ## Files
 
-- `worker.js` - Backend API (Cloudflare Worker)
-- `widget.js` - Chat widget (embed on website)
-- `DEPLOY.md` - Step-by-step deployment guide
+- `worker.js` - Cloudflare Worker; serves `/widget.js`, `/health`, and proxies `/api/chat`.
+- `wrangler.toml` - Worker configuration.
+- `DEPLOY.md` - Deployment and CyFairRealEstate.com embed instructions.
 
-## Example Chat
+## Required Cloudflare Variable
 
-**Visitor:** (clicks chat)  
-**Jane:** Hi! I'm Jane, CFRE's virtual client concierge. I can help you buy, sell, get your home value, or connect with our team.
+Set this Worker variable in Cloudflare Dashboard:
 
-**Visitor:** (clicks "Buy a Home")  
-**Jane:** Great! What's your target area or community?
+```text
+JANE_BACKEND_URL=https://YOUR-PUBLIC-JANE-BACKEND-URL
+```
 
-**Visitor:** "Bridgeland"  
-**Jane:** Perfect! What's the best phone number or email for our team to reach you?
+That URL must point to the Jane FastAPI bridge, which serves:
 
-**Visitor:** "john@email.com, 713-555-1234"  
-**Jane:** Thanks John! Jim or a team member will reach out within 24 hours.
+```text
+/health
+/chat
+```
 
-**Jim:** (gets Telegram notification)
+For example, after setting up Cloudflare Tunnel, it might be:
 
-## Lead Data Sent to Sierra
+```text
+JANE_BACKEND_URL=https://jane-origin.cyfairrealestate.com
+```
 
-- First/Last Name
-- Email & Phone
-- Lead Type (Buyer/Seller/Both)
-- Source: "Website Chat - Jane"
-- Notes with conversation context
-- Auto-assigned to appropriate agent
+## Website Embed
+
+Once the Worker custom domain is live, add this before `</body>` on CyFairRealEstate.com:
+
+```html
+<script>
+  window.CFREChatConfig = {
+    apiUrl: 'https://jane-cfre.cyfairrealestate.com/api/chat',
+    brandName: 'CY-FAIR Real Estate',
+    assistantName: 'Jane',
+    primaryColor: '#12122a'
+  };
+</script>
+<script src="https://jane-cfre.cyfairrealestate.com/widget.js" async></script>
+```
+
+If using the workers.dev URL temporarily, replace the host with that deployed Worker URL.
 
 ## Status
 
-**Phase 1:** Core flows (Buy/Sell/Home Value/Contact) - READY TO DEPLOY  
-**Phase 2:** AI Q&A for complex questions - PLANNED  
-**Phase 3:** Property search integration - PLANNED
-
-## Security
-
-- ✅ Sierra API key never exposed to browser
-- ✅ All server-side processing
-- ✅ CORS restricted to your domain
-- ✅ Input validation on all fields
-- ✅ No third-party dependencies (Zapier, etc.)
-
-## Customization
-
-Edit `worker.js` to:
-- Change greeting messages
-- Add more conversation flows
-- Modify button options
-- Update notification text
-
-Edit `widget.js` to:
-- Change colors/branding
-- Adjust positioning
-- Modify bubble icon
-- Change mobile behavior
-
-## Need Help?
-
-See `DEPLOY.md` for detailed deployment instructions.
+- Local Hermes Jane profile works.
+- Local FastAPI bridge works at `http://127.0.0.1:8084`.
+- Worker code is ready for GitHub-connected Cloudflare deployment.
+- Remaining deployment task: create a public HTTPS backend URL for the local/VPS Jane bridge and set `JANE_BACKEND_URL` in Cloudflare.
