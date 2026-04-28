@@ -15,7 +15,6 @@
   const proactiveEvery = Number(cfg.proactiveEvery || 5);
   let pageViews = Number(localStorage.getItem(pageViewKey) || '0') + 1;
   localStorage.setItem(pageViewKey, String(pageViews));
-  let sessionNotified = false;
 
   const style = document.createElement('style');
   style.textContent = `
@@ -151,22 +150,13 @@
     }
   }
 
-  async function notifySessionStart() {
-    if (sessionNotified) return;
-    sessionNotified = true;
-    try {
-      await sendToJane('Session started. Please greet the visitor briefly and ask how you can help.', { event: 'session_start' });
-    } catch (err) {
-      // Non-blocking; the visitor can still chat.
-    }
-  }
-
   function ensureGreeting() {
     if (!messages.dataset.started) {
       messages.dataset.started = '1';
       addMsg("Hi, I’m " + assistantName + ". Looking to buy, sell, check your home value, or explore neighborhoods?", 'bot');
       renderQuickActions();
-      notifySessionStart();
+      // Important: opening/auto-opening the widget is not a real chat session.
+      // Do not notify Telegram or create transcripts until the visitor submits a message.
     }
   }
 
