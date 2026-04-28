@@ -44,12 +44,17 @@
       #cfre-jane-button { right: 14px; bottom: 14px; width: 60px; height: 60px; }
       #cfre-jane-button .mini-avatar { width: 60px; height: 60px; }
       #cfre-jane-button .button-status { left: 2px; bottom: 7px; width: 14px; height: 14px; }
-      #cfre-jane-panel { left: 12px; right: 12px; bottom: 84px; width: auto; height: min(455px, calc(100dvh - 120px)); max-height: 455px; border-radius: 16px; }
-      #cfre-jane-header { padding: 9px 12px; }
-      #cfre-jane-avatar-wrap, #cfre-jane-avatar { width: 36px; height: 36px; }
+      #cfre-jane-panel { left: auto; right: 12px; bottom: 84px; width: min(330px, calc(100vw - 32px)); height: min(430px, calc(100dvh - 132px)); max-height: 430px; border-radius: 16px; }
+      #cfre-jane-header { padding: 8px 10px; gap: 8px; }
+      #cfre-jane-avatar-wrap, #cfre-jane-avatar { width: 34px; height: 34px; }
       #cfre-jane-title { font-size: 15px; }
-      #cfre-jane-subtitle { font-size: 11px; }
-      .cfre-msg { font-size: 13px; }
+      #cfre-jane-subtitle { font-size: 10.5px; }
+      #cfre-jane-messages { padding: 10px; }
+      #cfre-jane-form { gap: 6px; padding: 8px; }
+      #cfre-jane-input { padding: 9px 10px; font-size: 13px; }
+      #cfre-jane-send { padding: 0 10px; font-size: 13px; min-width: 48px; }
+      #cfre-jane-powered { font-size: 10px; padding-bottom: 6px; }
+      .cfre-msg { font-size: 13px; max-width: 90%; }
     }
   `;
   document.head.appendChild(style);
