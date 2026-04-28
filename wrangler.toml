@@ -3,6 +3,6 @@ main = "worker.js"
 compatibility_date = "2026-04-27"
 
 [vars]
-BRAND_NAME = "CY-FAIR Real Estate"
+BRAND_NAME = "Cy-Fair Real Estate"
 ASSISTANT_NAME = "Jane"
 CHATBOT_BACKEND_URL = "https://chatbot-origin.cyfairre.com"
