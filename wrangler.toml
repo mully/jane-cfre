@@ -5,5 +5,4 @@ compatibility_date = "2026-04-27"
 [vars]
 BRAND_NAME = "CY-FAIR Real Estate"
 ASSISTANT_NAME = "Jane"
-# Cloudflare Dashboard should override this after the public backend URL is created.
-JANE_BACKEND_URL = "REPLACE_WITH_PUBLIC_JANE_BACKEND_URL"
+CHATBOT_BACKEND_URL = "https://chatbot-origin.cyfairre.com"

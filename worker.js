@@ -36,8 +36,9 @@ function getBackendBase(env) {
   const candidates = [env.CHATBOT_BACKEND_URL, env.JANE_BACKEND_URL, fallback];
   for (const candidate of candidates) {
     if (!candidate) continue;
-    const value = String(candidate).trim();
+    let value = String(candidate).trim();
     if (!value || value.includes('REPLACE_WITH_PUBLIC_JANE_BACKEND_URL')) continue;
+    if (!/^https?:\/\//i.test(value)) value = `https://${value}`;
     return value.replace(/\/$/, '');
   }
   return '';
