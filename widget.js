@@ -11,6 +11,8 @@
   const storageKey = 'cfreChatSessionId';
   const sessionId = localStorage.getItem(storageKey) || ('cfre-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10));
   localStorage.setItem(storageKey, sessionId);
+  const historyKey = 'cfreJaneChatHistory:' + sessionId;
+  const maxHistoryMessages = Number(cfg.maxHistoryMessages || 80);
   const pageViewKey = 'cfreJanePageViews';
   const proactiveEvery = Number(cfg.proactiveEvery || 5);
   let pageViews = Number(localStorage.getItem(pageViewKey) || '0') + 1;
@@ -93,13 +95,94 @@
   const input = panel.querySelector('#cfre-jane-input');
   const closeBtn = panel.querySelector('#cfre-jane-close');
 
-  function addMsg(text, who) {
+  function readHistory() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(historyKey) || '[]');
+      return Array.isArray(parsed) ? parsed.filter((m) => m && typeof m.text === 'string' && (m.who === 'bot' || m.who === 'user')) : [];
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function saveHistory(history) {
+    try {
+      const trimmed = history.slice(-maxHistoryMessages);
+      localStorage.setItem(historyKey, JSON.stringify(trimmed));
+    } catch (err) {
+      // If storage is full or disabled, the live chat still works.
+    }
+  }
+
+  function appendTextWithLinks(container, text) {
+    const source = String(text || '');
+    // Supports raw URLs and Markdown-style [label](https://example.com) links.
+    const linkRe = /\[([^\]\n]{1,120})\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<]+)/g;
+    let last = 0;
+    let match;
+    while ((match = linkRe.exec(source)) !== null) {
+      if (match.index > last) container.appendChild(document.createTextNode(source.slice(last, match.index)));
+      const label = match[1] || match[3];
+      let href = match[2] || match[3];
+      href = href.replace(/[.,;:!?]+$/, '');
+      const trailing = (match[2] || match[3]).slice(href.length);
+      const a = document.createElement('a');
+      a.href = href;
+      a.textContent = label.replace(/^https?:\/\//, '');
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.style.color = whoLinkColor(container);
+      a.style.textDecoration = 'underline';
+      container.appendChild(a);
+      if (trailing) container.appendChild(document.createTextNode(trailing));
+      last = linkRe.lastIndex;
+    }
+    if (last < source.length) container.appendChild(document.createTextNode(source.slice(last)));
+  }
+
+  function whoLinkColor(container) {
+    return container.classList.contains('user') ? '#fff' : primary;
+  }
+
+  function setMsgText(div, text) {
+    div.textContent = '';
+    appendTextWithLinks(div, text);
+  }
+
+  function addMsg(text, who, options) {
     const div = document.createElement('div');
     div.className = 'cfre-msg ' + who;
-    div.textContent = text;
+    setMsgText(div, text);
     messages.appendChild(div);
     messages.scrollTop = messages.scrollHeight;
+    if (!options || !options.skipSave) {
+      const history = readHistory();
+      history.push({ who, text: String(text || ''), ts: Date.now() });
+      saveHistory(history);
+    }
     return div;
+  }
+
+  function updateMsg(div, text) {
+    setMsgText(div, text);
+    const history = readHistory();
+    const last = history[history.length - 1];
+    if (last && last.who === 'bot' && String(last.text || '').endsWith(' is typing...')) {
+      last.text = String(text || '');
+      last.ts = Date.now();
+    } else {
+      history.push({ who: 'bot', text: String(text || ''), ts: Date.now() });
+    }
+    saveHistory(history);
+  }
+
+  function restoreHistory() {
+    const history = readHistory();
+    history.forEach((m) => addMsg(m.text, m.who, { skipSave: true }));
+    if (history.length) {
+      messages.dataset.started = '1';
+      renderQuickActions();
+    }
+    return history.length;
   }
 
   async function sendToJane(text, extra) {
@@ -144,9 +227,9 @@
     const wait = addMsg(assistantName + ' is typing...', 'bot');
     try {
       const data = await sendToJane(text);
-      wait.textContent = data.reply || data.message || data.error || 'Sorry, I had trouble answering that.';
+      updateMsg(wait, data.reply || data.message || data.error || 'Sorry, I had trouble answering that.');
     } catch (err) {
-      wait.textContent = 'Sorry, I could not connect right now. You can call Cy-Fair Real Estate at 713-446-1018.';
+      updateMsg(wait, 'Sorry, I could not connect right now. You can call Cy-Fair Real Estate at 713-446-1018.');
     }
   }
 
@@ -178,6 +261,8 @@
     else openPanel();
   });
   closeBtn.addEventListener('click', () => panel.classList.remove('open'));
+
+  restoreHistory();
 
   if (shouldProactivelyOpen()) {
     setTimeout(() => {
